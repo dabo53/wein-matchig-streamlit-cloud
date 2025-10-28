@@ -1,15 +1,13 @@
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import gspread
 import pandas as pd
 import streamlit as st
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
 
 # --- Konfiguration ---
 SHEET_NAME = "3 Matching Tabellen"
-KEYFILE_PATH = Path(__file__).resolve().parent / "google-sheets-credentials.json"
 SPEISEN_SPALTE = "Speisename"
 
 INTENSITAETS_MAP = {"niedrig": 0, "mittel": 1, "hoch": 2}
@@ -65,13 +63,14 @@ VEGETARISCH_KEYWORDS = [
 # --- Helper & Caching ---
 @st.cache_resource(show_spinner=False)
 def get_gspread_client() -> gspread.Client:
-    scope = [
+    scopes = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/spreadsheets",
     ]
-    credentials = ServiceAccountCredentials.from_json_keyfile_name(str(KEYFILE_PATH), scope)
-    return gspread.authorize(credentials)
+    creds_info = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+    return gspread.authorize(creds)
 
 
 @st.cache_data(show_spinner=False)

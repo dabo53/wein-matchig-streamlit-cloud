@@ -2,7 +2,6 @@ Brotli==1.1.0
 CairoSVG==2.5.2
 Cython==0.29.36
 Faker==8.13.2
-Fiona==1.9.2
 Flask-CacheBuster==1.0.0
 Flask-Login==0.6.3
 MarkupSafe==3.0.2
@@ -351,7 +350,6 @@ tifffile==2025.6.11
 tinycss2==1.4.0
 toml==0.10.2
 toolz==1.0.0
-torch==2.5.1+cpu
 torchaudio==2.5.1
 torchtext==0.18.0
 torchvision==0.20.1

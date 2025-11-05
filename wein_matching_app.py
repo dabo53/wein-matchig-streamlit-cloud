@@ -77,9 +77,9 @@ def get_gspread_client() -> gspread.Client:
 def lade_daten() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     client = get_gspread_client()
     sheet = client.open(SHEET_NAME)
-    weine_df = pd.DataFrame(sheet.worksheet("Tabellenblatt4").get_all_records())
-    speisen_df = pd.DataFrame(sheet.worksheet("Tabellenblatt5").get_all_records())
-    regeln_df = pd.DataFrame(sheet.worksheet("Tabellenblatt6").get_all_records())
+    weine_df = pd.DataFrame(sheet.worksheet("Weinkarte").get_all_records())
+    speisen_df = pd.DataFrame(sheet.worksheet("Speisekarte").get_all_records())
+    regeln_df = pd.DataFrame(sheet.worksheet("Regeln").get_all_records())
     return weine_df, speisen_df, regeln_df
 
 

@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 
 
 # --- Konfiguration ---
-SHEET_NAME = "3 Matching Tabellen"
+SHEET_NAME = "Weinkarte, Speisekarte, Regeln"
 SPEISEN_SPALTE = "Speisename"
 
 INTENSITAETS_MAP = {"niedrig": 0, "mittel": 1, "hoch": 2}

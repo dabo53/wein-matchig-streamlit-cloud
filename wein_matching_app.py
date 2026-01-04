@@ -73,13 +73,30 @@ def get_gspread_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def lade_daten() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     client = get_gspread_client()
     sheet = client.open(SHEET_NAME)
-    weine_df = pd.DataFrame(sheet.worksheet("Weinkarte").get_all_records())
-    speisen_df = pd.DataFrame(sheet.worksheet("Speisekarte").get_all_records())
-    regeln_df = pd.DataFrame(sheet.worksheet("Regeln").get_all_records())
+
+    def worksheet_to_df(worksheet_name: str) -> pd.DataFrame:
+        """Lädt alle Daten aus einem Worksheet, auch bei leeren Zeilen."""
+        ws = sheet.worksheet(worksheet_name)
+        # get_all_values() ignoriert leere Zeilen nicht
+        all_values = ws.get_all_values()
+        if not all_values:
+            return pd.DataFrame()
+        headers = all_values[0]
+        data = all_values[1:]
+        df = pd.DataFrame(data, columns=headers)
+        # Entferne komplett leere Zeilen
+        df = df.dropna(how="all")
+        # Entferne Zeilen wo alle Werte leer sind (als String)
+        df = df[~(df == "").all(axis=1)]
+        return df
+
+    weine_df = worksheet_to_df("Weinkarte")
+    speisen_df = worksheet_to_df("Speisekarte")
+    regeln_df = worksheet_to_df("Regeln")
     return weine_df, speisen_df, regeln_df
 
 
@@ -373,6 +390,12 @@ except Exception as exc:  # pragma: no cover - UI Feedback
 if speisen_df.empty or weine_df.empty:
     st.warning("Keine Daten in den Google Sheets gefunden.")
     st.stop()
+
+# Debug-Info: Anzahl geladener Datensätze
+st.sidebar.markdown("### 📊 Geladene Daten")
+st.sidebar.write(f"🍷 Weine: **{len(weine_df)}**")
+st.sidebar.write(f"🍽️ Speisen: **{len(speisen_df)}**")
+st.sidebar.write(f"📋 Regeln: **{len(regeln_df)}**")
 
 speise_name = st.selectbox("Speise auswählen", speisen_df[SPEISEN_SPALTE].tolist())
 

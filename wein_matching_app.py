@@ -1,4 +1,5 @@
 import random
+import re
 from typing import Dict, List, Tuple
 
 import gspread
@@ -17,6 +18,8 @@ INTENSITAETS_MAP = {
     "mittel": 1, "Mittel": 1, "MITTEL": 1,
     "hoch": 2, "Hoch": 2, "HOCH": 2,
     "leicht": 0, "Leicht": 0,
+    "leicht bis mittel": 1, "Leicht bis Mittel": 1, "Leicht bis mittel": 1,
+    "mittel bis voll": 2, "Mittel bis Voll": 2, "Mittel bis voll": 2,
     "voll": 2, "Voll": 2,
     "kräftig": 2, "Kräftig": 2,
 }
@@ -26,8 +29,20 @@ SUESSE_MAP = {
     "hoch": 2, "Hoch": 2, "HOCH": 2,
     "trocken": 0, "Trocken": 0, "TROCKEN": 0,
     "halbtrocken": 1, "Halbtrocken": 1,
+    "feinherb": 1, "Feinherb": 1,
     "lieblich": 2, "Lieblich": 2,
     "süß": 2, "Süß": 2,
+}
+
+# Alternative Spaltennamen (Sheet-Name → Code-Name)
+SPALTEN_ALTERNATIVEN = {
+    "Farbe": ["Farbe", "Art", "Weinart", "Typ"],
+    "Körper": ["Körper", "Koerper", "Body"],
+    "Säure": ["Säure", "Saeure", "Acidity"],
+    "Süße": ["Süße", "Suesse", "Sweetness"],
+    "Tannin": ["Tannin", "Gerbstoff"],
+    "Alkoholgehalt": ["Alkoholgehalt", "Alkohol", "Alcohol"],
+    "Weinname": ["Weinname", "Name", "Wein"],
 }
 
 FISCH_KEYWORDS = [
@@ -143,15 +158,55 @@ def wert_map(mapper: Dict[str, int], value: str) -> int:
 
 
 def get_column_value(row: pd.Series, column_name: str, default: str = "") -> str:
-    """Holt einen Spaltenwert case-insensitiv."""
-    # Direkte Suche
-    if column_name in row.index:
-        return str(row[column_name])
-    # Case-insensitive Suche
-    for col in row.index:
-        if col.lower() == column_name.lower():
-            return str(row[col])
+    """Holt einen Spaltenwert mit alternativen Spaltennamen."""
+    # Hole alle möglichen Spaltennamen für dieses Feld
+    possible_names = SPALTEN_ALTERNATIVEN.get(column_name, [column_name])
+
+    for name in possible_names:
+        # Direkte Suche
+        if name in row.index:
+            return str(row[name])
+        # Case-insensitive Suche
+        for col in row.index:
+            if col.lower() == name.lower():
+                return str(row[col])
     return default
+
+
+def parse_weinfarbe(art_value: str) -> str:
+    """Konvertiert Weinart (z.B. 'Rotwein') zu Farbe (z.B. 'rot')."""
+    lower = art_value.lower().strip()
+    if "rot" in lower:
+        return "rot"
+    if "weiß" in lower or "weiss" in lower:
+        return "weiß"
+    if "rosé" in lower or "rose" in lower:
+        return "rosé"
+    if "schaum" in lower or "champagner" in lower or "sekt" in lower or "crémant" in lower:
+        return "schaumwein"
+    if "orange" in lower:
+        return "orange"
+    # Fallback: Original zurückgeben
+    return lower
+
+
+def parse_alkohol(alkohol_value: str) -> int:
+    """Konvertiert Alkohol-Prozent zu Intensität (0-2)."""
+    # Versuche Prozent zu parsen (z.B. "12,5%" oder "13.5%")
+    match = re.search(r"(\d+)[,.]?(\d*)", alkohol_value)
+    if match:
+        try:
+            prozent = float(match.group(1) + "." + (match.group(2) or "0"))
+            if prozent < 12:
+                return 0  # niedrig
+            elif prozent < 14:
+                return 1  # mittel
+            else:
+                return 2  # hoch
+        except ValueError:
+            pass
+    # Fallback zu Text-Mapping
+    return wert_map(INTENSITAETS_MAP, alkohol_value)
 
 
 def baue_regel_lookup(regeln_df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
@@ -180,8 +235,10 @@ def berechne_match(
     wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
     wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
     wein_tannin = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Tannin", "niedrig"))
-    wein_farbe = get_column_value(wein, "Farbe", "").lower()
-    wein_alkohol = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Alkoholgehalt", "mittel"))
+    # Weinfarbe: "Rotwein" → "rot", "Weißwein" → "weiß", etc.
+    wein_farbe = parse_weinfarbe(get_column_value(wein, "Farbe", ""))
+    # Alkohol: "12,5%" → 1 (mittel)
+    wein_alkohol = parse_alkohol(get_column_value(wein, "Alkoholgehalt", "mittel"))
 
     aromaprofil = get_column_value(speise, "Aromaprofil", "").lower()
     speise_saeure = wert_map(INTENSITAETS_MAP, get_column_value(speise, "Säure", "mittel"))
@@ -407,8 +464,10 @@ def berechne_top_matches(
     for idx, wein in weine_df.iterrows():
         result = berechne_match(speise, wein, regel_lookup)
         result["zeile"] = idx + 2  # +2 weil Header und 0-basiert
+        art_raw = get_column_value(wein, "Farbe", "")  # Sucht auch in "Art"
         result["wein_daten"] = {
-            "Farbe": get_column_value(wein, "Farbe", ""),
+            "Art (roh)": art_raw,
+            "Farbe (parsed)": parse_weinfarbe(art_raw),
             "Körper": get_column_value(wein, "Körper", ""),
             "Säure": get_column_value(wein, "Säure", ""),
             "Tannin": get_column_value(wein, "Tannin", ""),
@@ -493,23 +552,34 @@ if st.button("🔍 Weinempfehlungen anzeigen"):
 # Debug: Vergleich Wein aus Zeile 10 vs Zeile 500
 with st.expander("🔬 Debug: Vergleich Wein Zeile 10 vs Zeile 500"):
     col1, col2 = st.columns(2)
-    attr_cols = ["Weinname", "Farbe", "Körper", "Säure", "Tannin", "Süße", "Alkoholgehalt"]
 
     with col1:
         st.markdown("**Wein aus Zeile 10:**")
         if len(weine_df) > 9:
             wein_10 = weine_df.iloc[9]
-            for col in attr_cols:
-                val = wein_10.get(col, "FEHLT")
-                st.write(f"{col}: `{val}`")
+            st.write(f"Weinname: `{get_column_value(wein_10, 'Weinname', 'FEHLT')}`")
+            art_10 = get_column_value(wein_10, "Farbe", "FEHLT")
+            st.write(f"Art (roh): `{art_10}`")
+            st.write(f"Farbe (parsed): `{parse_weinfarbe(art_10)}`")
+            st.write(f"Körper: `{get_column_value(wein_10, 'Körper', 'FEHLT')}`")
+            st.write(f"Säure: `{get_column_value(wein_10, 'Säure', 'FEHLT')}`")
+            st.write(f"Tannin: `{get_column_value(wein_10, 'Tannin', 'FEHLT')}`")
+            st.write(f"Süße: `{get_column_value(wein_10, 'Süße', 'FEHLT')}`")
+            st.write(f"Alkoholgehalt: `{get_column_value(wein_10, 'Alkoholgehalt', 'FEHLT')}`")
 
     with col2:
         st.markdown("**Wein aus Zeile 500:**")
         if len(weine_df) > 499:
             wein_500 = weine_df.iloc[499]
-            for col in attr_cols:
-                val = wein_500.get(col, "FEHLT")
-                st.write(f"{col}: `{val}`")
+            st.write(f"Weinname: `{get_column_value(wein_500, 'Weinname', 'FEHLT')}`")
+            art_500 = get_column_value(wein_500, "Farbe", "FEHLT")
+            st.write(f"Art (roh): `{art_500}`")
+            st.write(f"Farbe (parsed): `{parse_weinfarbe(art_500)}`")
+            st.write(f"Körper: `{get_column_value(wein_500, 'Körper', 'FEHLT')}`")
+            st.write(f"Säure: `{get_column_value(wein_500, 'Säure', 'FEHLT')}`")
+            st.write(f"Tannin: `{get_column_value(wein_500, 'Tannin', 'FEHLT')}`")
+            st.write(f"Süße: `{get_column_value(wein_500, 'Süße', 'FEHLT')}`")
+            st.write(f"Alkoholgehalt: `{get_column_value(wein_500, 'Alkoholgehalt', 'FEHLT')}`")
         else:
             st.write("Weniger als 500 Weine vorhanden")
 

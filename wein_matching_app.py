@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List, Tuple
 
 import gspread
@@ -361,7 +362,7 @@ def berechne_top_matches(
     weine_df: pd.DataFrame,
     regeln_df: pd.DataFrame,
     speise_name: str,
-) -> List[Dict[str, object]]:
+) -> Tuple[List[Dict[str, object]], Dict[int, int]]:
     if speise_name not in speisen_df[SPEISEN_SPALTE].values:
         raise ValueError(f"Speise '{speise_name}' nicht gefunden.")
 
@@ -373,8 +374,17 @@ def berechne_top_matches(
         result = berechne_match(speise, wein, regel_lookup)
         matches.append(result)
 
+    # Zufällige Reihenfolge bei gleichem Score (Tiebreaker)
+    random.shuffle(matches)
     matches.sort(key=lambda item: item["punkte"], reverse=True)
-    return matches[:3]
+
+    # Debug: Score-Verteilung speichern
+    score_counts: Dict[int, int] = {}
+    for m in matches:
+        s = m["punkte"]
+        score_counts[s] = score_counts.get(s, 0) + 1
+
+    return matches[:3], score_counts
 
 
 # --- Streamlit UI ---
@@ -402,7 +412,7 @@ speise_name = st.selectbox("Speise auswählen", speisen_df[SPEISEN_SPALTE].tolis
 if st.button("🔍 Weinempfehlungen anzeigen"):
     with st.spinner("Berechne Empfehlungen..."):
         try:
-            top_matches = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
+            top_matches, score_counts = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
         except Exception as exc:
             st.error(f"⚠️ Matching fehlgeschlagen: {exc}")
         else:
@@ -421,6 +431,13 @@ if st.button("🔍 Weinempfehlungen anzeigen"):
                             )
                     with st.expander(f"Debug: Bewertung für {match['weinname']}"):
                         st.dataframe(pd.DataFrame(match["gründe"]))
+
+                # Debug: Score-Verteilung anzeigen
+                with st.expander("Debug: Score-Verteilung aller Weine"):
+                    st.markdown("**Wie viele Weine haben welchen Score?**")
+                    sorted_scores = sorted(score_counts.items(), key=lambda x: x[0], reverse=True)
+                    for score, count in sorted_scores[:10]:  # Top 10 Score-Gruppen
+                        st.write(f"Score {score}: **{count}** Weine")
 
     with st.expander("Debug: Speisendetails"):
         st.json(

@@ -11,8 +11,24 @@ from google.oauth2.service_account import Credentials
 SHEET_NAME = "Weinkarte, Speisekarte, Regeln"
 SPEISEN_SPALTE = "Speisename"
 
-INTENSITAETS_MAP = {"niedrig": 0, "mittel": 1, "hoch": 2}
-SUESSE_MAP = {"niedrig": 0, "mittel": 1, "hoch": 2}
+# Erweiterte Maps mit allen möglichen Schreibweisen
+INTENSITAETS_MAP = {
+    "niedrig": 0, "Niedrig": 0, "NIEDRIG": 0,
+    "mittel": 1, "Mittel": 1, "MITTEL": 1,
+    "hoch": 2, "Hoch": 2, "HOCH": 2,
+    "leicht": 0, "Leicht": 0,
+    "voll": 2, "Voll": 2,
+    "kräftig": 2, "Kräftig": 2,
+}
+SUESSE_MAP = {
+    "niedrig": 0, "Niedrig": 0, "NIEDRIG": 0,
+    "mittel": 1, "Mittel": 1, "MITTEL": 1,
+    "hoch": 2, "Hoch": 2, "HOCH": 2,
+    "trocken": 0, "Trocken": 0, "TROCKEN": 0,
+    "halbtrocken": 1, "Halbtrocken": 1,
+    "lieblich": 2, "Lieblich": 2,
+    "süß": 2, "Süß": 2,
+}
 
 FISCH_KEYWORDS = [
     "fisch",
@@ -117,7 +133,25 @@ def klassifiziere_speiseart(name: str) -> str:
 
 
 def wert_map(mapper: Dict[str, int], value: str) -> int:
-    return mapper.get(str(value).strip().lower(), 0)
+    """Mappt einen Wert auf einen numerischen Score, case-insensitiv."""
+    clean_value = str(value).strip().lower()
+    # Direkte Suche in der Map (case-insensitiv)
+    for key, val in mapper.items():
+        if key.lower() == clean_value:
+            return val
+    return 0  # Default wenn nichts gefunden
+
+
+def get_column_value(row: pd.Series, column_name: str, default: str = "") -> str:
+    """Holt einen Spaltenwert case-insensitiv."""
+    # Direkte Suche
+    if column_name in row.index:
+        return str(row[column_name])
+    # Case-insensitive Suche
+    for col in row.index:
+        if col.lower() == column_name.lower():
+            return str(row[col])
+    return default
 
 
 def baue_regel_lookup(regeln_df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
@@ -138,20 +172,20 @@ def berechne_match(
     details: List[Dict[str, str]] = []
 
     speise_art = klassifiziere_speiseart(speise[SPEISEN_SPALTE])
-    speise_fett = wert_map(INTENSITAETS_MAP, speise.get("Fettgehalt", "mittel"))
-    speise_wuerze = wert_map(INTENSITAETS_MAP, speise.get("Würze", "mittel"))
+    speise_fett = wert_map(INTENSITAETS_MAP, get_column_value(speise, "Fettgehalt", "mittel"))
+    speise_wuerze = wert_map(INTENSITAETS_MAP, get_column_value(speise, "Würze", "mittel"))
     speise_intensitaet = max(speise_fett, speise_wuerze)
 
-    wein_koerper = wert_map(INTENSITAETS_MAP, wein.get("Körper", "mittel"))
-    wein_saeure = wert_map(INTENSITAETS_MAP, wein.get("Säure", "mittel"))
-    wein_suesse = wert_map(SUESSE_MAP, wein.get("Süße", "niedrig"))
-    wein_tannin = wert_map(INTENSITAETS_MAP, wein.get("Tannin", "niedrig"))
-    wein_farbe = str(wein.get("Farbe", "")).lower()
-    wein_alkohol = wert_map(INTENSITAETS_MAP, wein.get("Alkoholgehalt", "mittel"))
+    wein_koerper = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Körper", "mittel"))
+    wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
+    wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
+    wein_tannin = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Tannin", "niedrig"))
+    wein_farbe = get_column_value(wein, "Farbe", "").lower()
+    wein_alkohol = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Alkoholgehalt", "mittel"))
 
-    aromaprofil = str(speise.get("Aromaprofil", "")).lower()
-    speise_saeure = wert_map(INTENSITAETS_MAP, speise.get("Säure", "mittel"))
-    speise_suesse = wert_map(SUESSE_MAP, speise.get("Süße", "niedrig"))
+    aromaprofil = get_column_value(speise, "Aromaprofil", "").lower()
+    speise_saeure = wert_map(INTENSITAETS_MAP, get_column_value(speise, "Säure", "mittel"))
+    speise_suesse = wert_map(SUESSE_MAP, get_column_value(speise, "Süße", "niedrig"))
 
     def fuege_regel_hinzu(kategorie: str, delta: int, erklaerung: str) -> None:
         nonlocal score
@@ -351,7 +385,7 @@ def berechne_match(
         )
 
     return {
-        "weinname": wein.get("Weinname", "Unbekannt"),
+        "weinname": get_column_value(wein, "Weinname", "Unbekannt"),
         "punkte": score,
         "gründe": details,
     }
@@ -370,8 +404,16 @@ def berechne_top_matches(
     regel_lookup = baue_regel_lookup(regeln_df)
 
     matches: List[Dict[str, object]] = []
-    for _, wein in weine_df.iterrows():
+    for idx, wein in weine_df.iterrows():
         result = berechne_match(speise, wein, regel_lookup)
+        result["zeile"] = idx + 2  # +2 weil Header und 0-basiert
+        result["wein_daten"] = {
+            "Farbe": get_column_value(wein, "Farbe", ""),
+            "Körper": get_column_value(wein, "Körper", ""),
+            "Säure": get_column_value(wein, "Säure", ""),
+            "Tannin": get_column_value(wein, "Tannin", ""),
+            "Süße": get_column_value(wein, "Süße", ""),
+        }
         matches.append(result)
 
     # Zufällige Reihenfolge bei gleichem Score (Tiebreaker)
@@ -422,7 +464,8 @@ if st.button("🔍 Weinempfehlungen anzeigen"):
                 st.subheader(f"Top {len(top_matches)} Empfehlungen für: {speise_name}")
                 for match in top_matches:
                     punkte = match["punkte"]
-                    st.markdown(f"**{match['weinname']}** — {punkte} Punkte")
+                    zeile = match.get("zeile", "?")
+                    st.markdown(f"**{match['weinname']}** — {punkte} Punkte (Zeile {zeile} im Sheet)")
                     if match["gründe"]:
                         st.markdown("Gründe:")
                         for eintrag in match["gründe"]:
@@ -430,6 +473,9 @@ if st.button("🔍 Weinempfehlungen anzeigen"):
                                 f"- {eintrag['Kategorie']}: {eintrag['Erklärung']} ({eintrag['Punkte']})"
                             )
                     with st.expander(f"Debug: Bewertung für {match['weinname']}"):
+                        st.markdown("**Wein-Attribute aus Sheet:**")
+                        st.json(match.get("wein_daten", {}))
+                        st.markdown("**Angewandte Regeln:**")
                         st.dataframe(pd.DataFrame(match["gründe"]))
 
                 # Debug: Score-Verteilung anzeigen
@@ -443,3 +489,30 @@ if st.button("🔍 Weinempfehlungen anzeigen"):
         st.json(
             speisen_df[speisen_df[SPEISEN_SPALTE] == speise_name].iloc[0].to_dict()
         )
+
+# Debug: Vergleich Wein aus Zeile 10 vs Zeile 500
+with st.expander("🔬 Debug: Vergleich Wein Zeile 10 vs Zeile 500"):
+    col1, col2 = st.columns(2)
+    attr_cols = ["Weinname", "Farbe", "Körper", "Säure", "Tannin", "Süße", "Alkoholgehalt"]
+
+    with col1:
+        st.markdown("**Wein aus Zeile 10:**")
+        if len(weine_df) > 9:
+            wein_10 = weine_df.iloc[9]
+            for col in attr_cols:
+                val = wein_10.get(col, "FEHLT")
+                st.write(f"{col}: `{val}`")
+
+    with col2:
+        st.markdown("**Wein aus Zeile 500:**")
+        if len(weine_df) > 499:
+            wein_500 = weine_df.iloc[499]
+            for col in attr_cols:
+                val = wein_500.get(col, "FEHLT")
+                st.write(f"{col}: `{val}`")
+        else:
+            st.write("Weniger als 500 Weine vorhanden")
+
+    st.markdown("---")
+    st.markdown("**Alle Spalten im Wein-DataFrame:**")
+    st.write(list(weine_df.columns))

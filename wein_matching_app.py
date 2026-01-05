@@ -218,6 +218,89 @@ def baue_regel_lookup(regeln_df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
     return lookup
 
 
+def generiere_sommelier_text(
+    speise_name: str,
+    speise_art: str,
+    wein_name: str,
+    wein_farbe: str,
+    positive_kategorien: List[str],
+) -> str:
+    """Generiert einen natürlichen Sommelier-Text für ein Wein-Speise-Pairing."""
+
+    # Weinfarbe in lesbaren Text
+    farbe_text = {
+        "rot": "Rotwein",
+        "weiß": "Weißwein",
+        "rosé": "Rosé",
+        "schaumwein": "Schaumwein",
+        "orange": "Orange Wine",
+    }.get(wein_farbe, "Wein")
+
+    # Speiseart in lesbaren Text
+    art_text = {
+        "fisch": "Fischgericht",
+        "gefluegel": "Geflügelgericht",
+        "rotes_fleisch": "Fleischgericht",
+        "vegetarisch": "vegetarische Gericht",
+        "dessert": "Dessert",
+    }.get(speise_art, "Gericht")
+
+    # Textbausteine basierend auf positiven Kategorien
+    saetze = []
+
+    # Hauptaussage zur Kombination
+    if "Weinfarbe & Speiseart" in positive_kategorien:
+        if speise_art in {"fisch", "gefluegel", "vegetarisch"}:
+            saetze.append(f"Dieser {farbe_text} ist ein idealer Begleiter für Ihr {art_text}.")
+        elif speise_art == "rotes_fleisch":
+            saetze.append(f"Die Struktur dieses {farbe_text}s harmoniert ausgezeichnet mit der Intensität des Fleisches.")
+        elif speise_art == "dessert":
+            saetze.append(f"Dieser {farbe_text} rundet Ihr {art_text} wunderbar ab.")
+        else:
+            saetze.append(f"Dieser {farbe_text} ergänzt Ihr Gericht auf elegante Weise.")
+
+    # Körper/Intensität
+    if "Intensitätsabgleich (Gewicht)" in positive_kategorien:
+        if not saetze:
+            saetze.append(f"Die Fülle des Weins steht im perfekten Gleichgewicht mit der Aromatik Ihrer Speise.")
+        else:
+            saetze.append("Dabei stehen Wein und Speise in perfekter Balance zueinander.")
+
+    # Säure
+    if "Säure-Balance" in positive_kategorien or "Säure-Fett" in positive_kategorien:
+        saetze.append("Die lebendige Säure sorgt für Frische am Gaumen und hebt die Aromen hervor.")
+
+    # Süße
+    if "Süße-Balance" in positive_kategorien:
+        if speise_art == "dessert":
+            saetze.append("Die feine Süße des Weins greift die Dessertnoten harmonisch auf.")
+        else:
+            saetze.append("Die Geschmacksprofile von Wein und Speise ergänzen sich harmonisch.")
+
+    # Tannin
+    if "Tannin vs Fett" in positive_kategorien:
+        saetze.append("Die samtigen Tannine umschmeicheln die reichhaltigen Aromen des Gerichts.")
+
+    # Textur
+    if "Textur" in positive_kategorien:
+        saetze.append("Die Textur des Weins setzt einen spannenden Kontrast zur Speise.")
+
+    # Würze
+    if "Würze/Schärfe" in positive_kategorien:
+        saetze.append("Der Wein mildert die Würze und schafft einen angenehmen Ausgleich.")
+
+    # Salz
+    if "Salz" in positive_kategorien:
+        saetze.append("Die salzigen Nuancen des Gerichts werden vom Wein elegant aufgefangen.")
+
+    # Fallback wenn keine speziellen Kategorien
+    if not saetze:
+        saetze.append(f"Dieser {farbe_text} passt hervorragend zu Ihrer Wahl und verspricht ein genussvolles Zusammenspiel der Aromen.")
+
+    # Maximal 2-3 Sätze für einen flüssigen Text
+    return " ".join(saetze[:3])
+
+
 def berechne_match(
     speise: pd.Series,
     wein: pd.Series,
@@ -453,39 +536,42 @@ def berechne_top_matches(
     weine_df: pd.DataFrame,
     regeln_df: pd.DataFrame,
     speise_name: str,
-) -> Tuple[List[Dict[str, object]], Dict[int, int]]:
+) -> Tuple[List[Dict[str, object]], str]:
+    """Berechnet die Top-Matches und gibt auch die Speiseart zurück."""
     if speise_name not in speisen_df[SPEISEN_SPALTE].values:
         raise ValueError(f"Speise '{speise_name}' nicht gefunden.")
 
     speise = speisen_df[speisen_df[SPEISEN_SPALTE] == speise_name].iloc[0]
+    speise_art = klassifiziere_speiseart(speise_name)
     regel_lookup = baue_regel_lookup(regeln_df)
 
     matches: List[Dict[str, object]] = []
     for idx, wein in weine_df.iterrows():
         result = berechne_match(speise, wein, regel_lookup)
-        result["zeile"] = idx + 2  # +2 weil Header und 0-basiert
-        art_raw = get_column_value(wein, "Farbe", "")  # Sucht auch in "Art"
-        result["wein_daten"] = {
-            "Art (roh)": art_raw,
-            "Farbe (parsed)": parse_weinfarbe(art_raw),
-            "Körper": get_column_value(wein, "Körper", ""),
-            "Säure": get_column_value(wein, "Säure", ""),
-            "Tannin": get_column_value(wein, "Tannin", ""),
-            "Süße": get_column_value(wein, "Süße", ""),
-        }
+        art_raw = get_column_value(wein, "Farbe", "")
+        wein_farbe = parse_weinfarbe(art_raw)
+
+        # Positive Kategorien sammeln für Sommelier-Text
+        positive_kategorien = [
+            g["Kategorie"] for g in result["gründe"]
+            if g["Punkte"].startswith("+")
+        ]
+
+        # Sommelier-Text generieren
+        result["beschreibung"] = generiere_sommelier_text(
+            speise_name=speise_name,
+            speise_art=speise_art,
+            wein_name=result["weinname"],
+            wein_farbe=wein_farbe,
+            positive_kategorien=positive_kategorien,
+        )
         matches.append(result)
 
     # Zufällige Reihenfolge bei gleichem Score (Tiebreaker)
     random.shuffle(matches)
     matches.sort(key=lambda item: item["punkte"], reverse=True)
 
-    # Debug: Score-Verteilung speichern
-    score_counts: Dict[int, int] = {}
-    for m in matches:
-        s = m["punkte"]
-        score_counts[s] = score_counts.get(s, 0) + 1
-
-    return matches[:3], score_counts
+    return matches[:3], speise_art
 
 
 # --- Streamlit UI ---
@@ -568,7 +654,7 @@ st.markdown("")  # Spacing
 if st.button("Passende Weine finden"):
     with st.spinner("Analysiere Geschmacksprofile..."):
         try:
-            top_matches, score_counts = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
+            top_matches, speise_art = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
         except Exception as exc:
             st.error(f"Fehler: {exc}")
         else:
@@ -576,21 +662,12 @@ if st.button("Passende Weine finden"):
                 st.info("Keine passenden Weine gefunden.")
             else:
                 st.markdown("---")
-                st.markdown(f"### Empfehlungen für *{speise_name}*")
+                st.markdown(f"### Unsere Empfehlungen")
 
                 for i, match in enumerate(top_matches, 1):
-                    # Fließtext aus den Gründen erstellen
-                    gruende_texte = []
-                    if match["gründe"]:
-                        for eintrag in match["gründe"]:
-                            if eintrag['Punkte'].startswith('+'):
-                                gruende_texte.append(eintrag['Erklärung'])
-
-                    beschreibung = " ".join(gruende_texte) if gruende_texte else "Ein passender Wein für dieses Gericht."
-
                     st.markdown(f"""
                     <div class="wine-card">
                         <div class="wine-name">{i}. {match['weinname']}</div>
-                        <div class="wine-description">{beschreibung}</div>
+                        <div class="wine-description">{match['beschreibung']}</div>
                     </div>
                     """, unsafe_allow_html=True)

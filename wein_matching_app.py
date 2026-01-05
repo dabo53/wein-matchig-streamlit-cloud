@@ -575,131 +575,6 @@ def berechne_top_matches(
     return matches[:3], speise_art
 
 
-# --- Streamlit UI ---
-st.set_page_config(
-    page_title="AI Sommelier",
-    page_icon="🍷",
-    layout="centered",
-)
-
-# Custom CSS für schöneres Design
-st.markdown("""
-<style>
-    .main-header {
-        text-align: center;
-        padding: 1rem 0 2rem 0;
-    }
-    .wine-card {
-        background: linear-gradient(135deg, #f5f0eb 0%, #e8e0d8 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        border-left: 4px solid #722F37;
-    }
-    .wine-name {
-        font-size: 1.3rem;
-        font-weight: bold;
-        color: #722F37;
-        margin-bottom: 0.5rem;
-    }
-    .wine-description {
-        font-size: 1rem;
-        color: #4a4a4a;
-        line-height: 1.6;
-        margin-top: 0.8rem;
-    }
-    .choice-card {
-        background: #f9f9f9;
-        border-radius: 12px;
-        padding: 2rem;
-        text-align: center;
-        border: 2px solid #e0e0e0;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    .choice-card:hover {
-        border-color: #722F37;
-        background: #faf7f5;
-    }
-    .stButton > button {
-        background-color: #722F37;
-        color: white;
-        border-radius: 8px;
-        padding: 0.5rem 2rem;
-        font-size: 1.1rem;
-        border: none;
-        width: 100%;
-    }
-    .stButton > button:hover {
-        background-color: #5a252c;
-    }
-    .back-button > button {
-        background-color: #666;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Session State initialisieren
-if "modus" not in st.session_state:
-    st.session_state.modus = "start"  # start, eingabe, liste
-
-# Header
-st.markdown('<div class="main-header">', unsafe_allow_html=True)
-st.title("AI Sommelier")
-st.markdown("*Ihr persönlicher Weinberater für das perfekte Pairing*")
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Daten laden
-try:
-    weine_df, speisen_df, regeln_df = lade_daten()
-except Exception as exc:
-    st.error(f"Daten konnten nicht geladen werden: {exc}")
-    st.stop()
-
-if speisen_df.empty or weine_df.empty:
-    st.warning("Keine Daten gefunden.")
-    st.stop()
-
-# Sidebar
-st.sidebar.markdown("### Über")
-st.sidebar.markdown(f"**{len(weine_df)}** Weine verfügbar")
-st.sidebar.markdown(f"**{len(speisen_df)}** Gerichte")
-
-
-def zeige_empfehlungen(speise_name: str, praeferenzen: str = ""):
-    """Zeigt Weinempfehlungen für eine Speise an, mit optionalen Präferenzen."""
-    with st.spinner("Analysiere Geschmacksprofile..."):
-        try:
-            # Weine filtern falls Präferenzen angegeben
-            aktuelle_weine = weine_df
-            if praeferenzen.strip():
-                ausschluesse = parse_ausschluesse(praeferenzen)
-                aktuelle_weine = filter_weine(weine_df, ausschluesse)
-
-            if aktuelle_weine.empty:
-                st.warning("Mit diesen Präferenzen sind leider keine Weine mehr übrig.")
-                return
-
-            top_matches, speise_art = berechne_top_matches(speisen_df, aktuelle_weine, regeln_df, speise_name)
-        except Exception as exc:
-            st.error(f"Fehler: {exc}")
-            return
-
-        if not top_matches:
-            st.info("Keine passenden Weine gefunden.")
-        else:
-            st.markdown("---")
-            st.markdown(f"### Unsere Empfehlungen")
-
-            for i, match in enumerate(top_matches, 1):
-                st.markdown(f"""
-                <div class="wine-card">
-                    <div class="wine-name">{i}. {match['weinname']}</div>
-                    <div class="wine-description">{match['beschreibung']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-
 def finde_passende_speise(eingabe: str) -> List[str]:
     """Findet Speisen die zur Eingabe passen."""
     eingabe_lower = eingabe.lower().strip()
@@ -797,79 +672,290 @@ def filter_weine(weine_df: pd.DataFrame, ausschluesse: Dict[str, List[str]]) -> 
     return gefiltert
 
 
-# --- STARTSEITE ---
-if st.session_state.modus == "start":
-    st.markdown("### Wie möchten Sie Ihr Gericht auswählen?")
-    st.markdown("")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Gericht beschreiben**")
-        st.markdown("Schreiben Sie, was Sie essen möchten")
-        if st.button("Eingeben", key="btn_eingabe"):
-            st.session_state.modus = "eingabe"
-            st.rerun()
-
-    with col2:
-        st.markdown("**Aus Speisekarte wählen**")
-        st.markdown("Wählen Sie aus unserer Karte")
-        if st.button("Speisekarte", key="btn_liste"):
-            st.session_state.modus = "liste"
-            st.rerun()
+# --- UI-Helfer ---
+st.set_page_config(
+    page_title="AI Sommelier",
+    page_icon="🍷",
+    layout="centered",
+)
 
 
-# --- FREITEXT EINGABE ---
-elif st.session_state.modus == "eingabe":
-    if st.button("← Zurück"):
-        st.session_state.modus = "start"
-        st.rerun()
+def render_header(weine_df: pd.DataFrame, speisen_df: pd.DataFrame) -> None:
+    st.markdown('<div class="main-header">', unsafe_allow_html=True)
+    st.title("AI Sommelier")
+    st.markdown("*Ihr persönlicher Weinberater für das perfekte Pairing*")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("### Was essen Sie heute?")
-    st.markdown("Beschreiben Sie Ihr Gericht (z.B. *Lachs*, *Steak*, *Pasta*)")
-
-    eingabe = st.text_input("Ihr Gericht", placeholder="z.B. Lachs mit Gemüse")
-
-    st.markdown("")
-    st.markdown("### Gibt es etwas, das Sie nicht mögen?")
-    st.markdown("*Optional: z.B. kein Rotwein, nicht zu trocken, keine hohe Säure*")
-    praeferenzen = st.text_input("Ihre Präferenzen", placeholder="z.B. kein Rotwein", key="pref_eingabe")
-
-    if eingabe:
-        treffer = finde_passende_speise(eingabe)
-
-        if treffer:
-            if len(treffer) == 1:
-                st.success(f"Gefunden: **{treffer[0]}**")
-                if st.button("Weine finden"):
-                    zeige_empfehlungen(treffer[0], praeferenzen)
-            else:
-                st.info(f"{len(treffer)} passende Gerichte gefunden:")
-                auswahl = st.selectbox("Bitte wählen:", treffer)
-                if st.button("Weine finden"):
-                    zeige_empfehlungen(auswahl, praeferenzen)
-        else:
-            st.warning("Kein passendes Gericht gefunden. Versuchen Sie einen anderen Begriff oder wählen Sie aus der Speisekarte.")
+    st.sidebar.markdown("### Über")
+    st.sidebar.markdown(f"**{len(weine_df)}** Weine verfügbar")
+    st.sidebar.markdown(f"**{len(speisen_df)}** Gerichte")
 
 
-# --- LISTEN AUSWAHL ---
-elif st.session_state.modus == "liste":
-    if st.button("← Zurück"):
-        st.session_state.modus = "start"
-        st.rerun()
+def render_message(role: str, text: str, matches: List[Dict[str, object]] | None = None) -> None:
+    alignment = "flex-end" if role == "user" else "flex-start"
+    bubble_class = "user-bubble" if role == "user" else "bot-bubble"
 
-    st.markdown("### Wählen Sie Ihr Gericht")
-
-    speise_name = st.selectbox(
-        "Gericht",
-        speisen_df[SPEISEN_SPALTE].tolist(),
-        label_visibility="collapsed"
+    st.markdown(
+        f"""
+        <div class="chat-row" style="justify-content: {alignment};">
+            <div class="{bubble_class}">
+                {text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.markdown("")
-    st.markdown("### Gibt es etwas, das Sie nicht mögen?")
-    st.markdown("*Optional: z.B. kein Rotwein, nicht zu trocken, keine hohe Säure*")
-    praeferenzen = st.text_input("Ihre Präferenzen", placeholder="z.B. kein Rotwein", key="pref_liste")
+    if matches:
+        for i, match in enumerate(matches, 1):
+            st.markdown(
+                f"""
+                <div class="chat-row" style="justify-content: flex-start;">
+                    <div class="wine-card">
+                        <div class="wine-name">{i}. {match['weinname']}</div>
+                        <div class="wine-description">{match['beschreibung']}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    if st.button("Passende Weine finden"):
-        zeige_empfehlungen(speise_name, praeferenzen)
+
+def ermittle_empfehlungen(
+    speise_name: str,
+    praeferenzen: str,
+    weine_df: pd.DataFrame,
+    speisen_df: pd.DataFrame,
+    regeln_df: pd.DataFrame,
+) -> Dict[str, object]:
+    aktuelle_weine = weine_df
+    if praeferenzen.strip():
+        ausschluesse = parse_ausschluesse(praeferenzen)
+        aktuelle_weine = filter_weine(weine_df, ausschluesse)
+
+    if aktuelle_weine.empty:
+        return {"status": "warn", "message": "Mit diesen Präferenzen sind leider keine Weine mehr übrig.", "matches": []}
+
+    try:
+        top_matches, _ = berechne_top_matches(speisen_df, aktuelle_weine, regeln_df, speise_name)
+    except Exception as exc:
+        return {"status": "error", "message": f"Fehler: {exc}", "matches": []}
+
+    if not top_matches:
+        return {"status": "info", "message": "Keine passenden Weine gefunden.", "matches": []}
+
+    return {"status": "ok", "matches": top_matches}
+
+
+def render_chat_view(weine_df: pd.DataFrame, speisen_df: pd.DataFrame, regeln_df: pd.DataFrame) -> None:
+    st.subheader("Chat")
+    st.caption("Beschreiben Sie Ihr Gericht oder wählen Sie aus der Karte, unser Sommelier antwortet im Chat.")
+
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+
+    history_container = st.container()
+    input_container = st.container()
+
+    with history_container:
+        if not st.session_state.chat_messages:
+            st.info("Starten Sie den Chat mit Ihrem Gericht oder wählen Sie ein Gericht aus der Karte.")
+        else:
+            for message in st.session_state.chat_messages:
+                render_message(message["role"], message["text"], message.get("matches"))
+
+    with input_container:
+        with st.form("chat-form"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                gericht_input = st.text_input(
+                    "Gericht beschreiben",
+                    placeholder="z.B. Lachs mit Gemüse",
+                    key="gericht_input",
+                )
+                vorschlaege = finde_passende_speise(gericht_input) if gericht_input else []
+                ausgewaehlter_vorschlag = None
+                if vorschlaege:
+                    st.caption(f"Gefundene Gerichte: {', '.join(vorschlaege[:3])}" + (" ..." if len(vorschlaege) > 3 else ""))
+                    ausgewaehlter_vorschlag = st.selectbox(
+                        "Passenden Vorschlag auswählen",
+                        vorschlaege,
+                        key="vorschlag_auswahl",
+                    )
+
+            with col2:
+                speise_auswahl = st.selectbox(
+                    "Oder direkt aus der Speisekarte wählen",
+                    ["Bitte wählen"] + speisen_df[SPEISEN_SPALTE].tolist(),
+                    key="speisekarte_select",
+                )
+
+            praeferenzen = st.text_area(
+                "Was sollen wir vermeiden?",
+                placeholder="Optional: kein Rotwein, nicht zu trocken, keine hohe Säure",
+                key="pref_chat",
+            )
+
+            submitted = st.form_submit_button("Empfehlung anfragen")
+
+        if submitted:
+            speise_name = None
+            if speise_auswahl != "Bitte wählen":
+                speise_name = speise_auswahl
+            elif ausgewaehlter_vorschlag:
+                speise_name = ausgewaehlter_vorschlag
+
+            if not speise_name and gericht_input:
+                treffer = finde_passende_speise(gericht_input)
+                if len(treffer) == 1:
+                    speise_name = treffer[0]
+
+            if not speise_name:
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "bot",
+                        "text": "Ich konnte das Gericht nicht zuordnen. Bitte wählen Sie einen Vorschlag oder nutzen Sie die Speisekarte.",
+                    }
+                )
+                st.rerun()
+
+            user_message = f"Gericht: **{speise_name}**"
+            if praeferenzen.strip():
+                user_message += f"<br>Präferenzen: {praeferenzen}"
+            st.session_state.chat_messages.append({"role": "user", "text": user_message})
+
+            with st.spinner("Analysiere Geschmacksprofile..."):
+                ergebnis = ermittle_empfehlungen(speise_name, praeferenzen, weine_df, speisen_df, regeln_df)
+
+            if ergebnis["status"] != "ok":
+                st.session_state.chat_messages.append(
+                    {"role": "bot", "text": ergebnis["message"], "matches": ergebnis.get("matches", [])}
+                )
+            else:
+                antwort = "Hier sind meine Weinempfehlungen für Ihr Gericht:"
+                st.session_state.chat_messages.append(
+                    {"role": "bot", "text": antwort, "matches": ergebnis["matches"]}
+                )
+
+            st.rerun()
+
+
+def render_profile_view(weine_df: pd.DataFrame, speisen_df: pd.DataFrame, regeln_df: pd.DataFrame) -> None:
+    st.subheader("Profil")
+    st.caption("Überblick über Ihre Datenbasis und Matching-Regeln.")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Weine", len(weine_df))
+    col2.metric("Gerichte", len(speisen_df))
+    col3.metric("Regeln", len(regeln_df))
+
+    st.markdown("### Beliebte Speisen aus der Karte")
+    st.dataframe(
+        speisen_df[[SPEISEN_SPALTE]].head(10),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
+def render_cellar_view(weine_df: pd.DataFrame) -> None:
+    st.subheader("Keller")
+    st.caption("Ein Blick in den Weinkeller – stöbern Sie in der Weinkarte.")
+
+    if {"Weinname", "Farbe"}.issubset(weine_df.columns):
+        st.dataframe(
+            weine_df[["Weinname", "Farbe", "Körper", "Süße", "Säure", "Tannin"]].head(20),
+            hide_index=True,
+            use_container_width=True,
+        )
+    else:
+        st.dataframe(weine_df.head(20), hide_index=True, use_container_width=True)
+
+
+def main() -> None:
+    st.markdown(
+        """
+        <style>
+            .main-header {
+                text-align: center;
+                padding: 1rem 0 1.5rem 0;
+            }
+            .chat-row {
+                display: flex;
+                width: 100%;
+                margin: 0.5rem 0;
+            }
+            .bot-bubble, .user-bubble {
+                max-width: 80%;
+                padding: 1rem;
+                border-radius: 12px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+            }
+            .bot-bubble {
+                background: #f5f0eb;
+                border-left: 4px solid #722F37;
+            }
+            .user-bubble {
+                background: #e8eef5;
+                text-align: right;
+                border-right: 4px solid #1d4ed8;
+            }
+            .wine-card {
+                background: linear-gradient(135deg, #f5f0eb 0%, #e8e0d8 100%);
+                border-radius: 12px;
+                padding: 1.5rem;
+                margin: 0.5rem 0;
+                border-left: 4px solid #722F37;
+            }
+            .wine-name {
+                font-size: 1.1rem;
+                font-weight: bold;
+                color: #722F37;
+                margin-bottom: 0.25rem;
+            }
+            .wine-description {
+                font-size: 0.95rem;
+                color: #4a4a4a;
+                line-height: 1.6;
+                margin-top: 0.4rem;
+            }
+            .stButton > button {
+                background-color: #722F37;
+                color: white;
+                border-radius: 8px;
+                padding: 0.6rem 1.2rem;
+                font-size: 1rem;
+                border: none;
+                width: 100%;
+            }
+            .stButton > button:hover {
+                background-color: #5a252c;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    try:
+        weine_df, speisen_df, regeln_df = lade_daten()
+    except Exception as exc:
+        st.error(f"Daten konnten nicht geladen werden: {exc}")
+        st.stop()
+
+    if speisen_df.empty or weine_df.empty:
+        st.warning("Keine Daten gefunden.")
+        st.stop()
+
+    render_header(weine_df, speisen_df)
+
+    tabs = st.tabs(["Chat", "Profil", "Keller"])
+    with tabs[0]:
+        render_chat_view(weine_df, speisen_df, regeln_df)
+    with tabs[1]:
+        render_profile_view(weine_df, speisen_df, regeln_df)
+    with tabs[2]:
+        render_cellar_view(weine_df)
+
+
+if __name__ == "__main__":
+    main()

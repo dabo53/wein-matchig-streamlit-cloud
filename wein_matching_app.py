@@ -665,11 +665,21 @@ st.sidebar.markdown(f"**{len(weine_df)}** Weine verfügbar")
 st.sidebar.markdown(f"**{len(speisen_df)}** Gerichte")
 
 
-def zeige_empfehlungen(speise_name: str):
-    """Zeigt Weinempfehlungen für eine Speise an."""
+def zeige_empfehlungen(speise_name: str, praeferenzen: str = ""):
+    """Zeigt Weinempfehlungen für eine Speise an, mit optionalen Präferenzen."""
     with st.spinner("Analysiere Geschmacksprofile..."):
         try:
-            top_matches, speise_art = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
+            # Weine filtern falls Präferenzen angegeben
+            aktuelle_weine = weine_df
+            if praeferenzen.strip():
+                ausschluesse = parse_ausschluesse(praeferenzen)
+                aktuelle_weine = filter_weine(weine_df, ausschluesse)
+
+            if aktuelle_weine.empty:
+                st.warning("Mit diesen Präferenzen sind leider keine Weine mehr übrig.")
+                return
+
+            top_matches, speise_art = berechne_top_matches(speisen_df, aktuelle_weine, regeln_df, speise_name)
         except Exception as exc:
             st.error(f"Fehler: {exc}")
             return
@@ -697,6 +707,93 @@ def finde_passende_speise(eingabe: str) -> List[str]:
         if eingabe_lower in speise.lower():
             treffer.append(speise)
     return treffer
+
+
+def parse_ausschluesse(text: str) -> Dict[str, List[str]]:
+    """
+    Erkennt Ausschlüsse aus Freitext.
+    Beispiele: "kein Rotwein", "nicht zu trocken", "keine hohe Säure"
+    """
+    text_lower = text.lower()
+    ausschluesse: Dict[str, List[str]] = {
+        "farben": [],
+        "suesse": [],
+        "koerper": [],
+        "saeure": [],
+    }
+
+    # Weinfarben erkennen
+    if any(x in text_lower for x in ["kein rot", "keinen rot", "nicht rot", "rotwein"]):
+        ausschluesse["farben"].append("rot")
+    if any(x in text_lower for x in ["kein weiß", "keinen weiß", "nicht weiß", "weißwein", "kein weiss", "weisswein"]):
+        ausschluesse["farben"].append("weiß")
+    if any(x in text_lower for x in ["kein rosé", "keinen rosé", "nicht rosé", "kein rose"]):
+        ausschluesse["farben"].append("rosé")
+    if any(x in text_lower for x in ["kein schaum", "keinen schaum", "kein sekt", "kein champagner"]):
+        ausschluesse["farben"].append("schaumwein")
+
+    # Süße erkennen
+    if any(x in text_lower for x in ["nicht trocken", "kein trocken", "zu trocken"]):
+        ausschluesse["suesse"].append("trocken")
+    if any(x in text_lower for x in ["nicht süß", "kein süß", "zu süß", "nicht lieblich"]):
+        ausschluesse["suesse"].append("süß")
+
+    # Körper erkennen
+    if any(x in text_lower for x in ["nicht schwer", "kein schwer", "zu schwer", "nicht voll", "zu kräftig"]):
+        ausschluesse["koerper"].append("schwer")
+    if any(x in text_lower for x in ["nicht leicht", "kein leicht", "zu leicht"]):
+        ausschluesse["koerper"].append("leicht")
+
+    # Säure erkennen
+    if any(x in text_lower for x in ["nicht sauer", "keine säure", "zu sauer", "hohe säure", "viel säure"]):
+        ausschluesse["saeure"].append("hoch")
+    if any(x in text_lower for x in ["mehr säure", "wenig säure", "keine säure"]):
+        ausschluesse["saeure"].append("niedrig")
+
+    return ausschluesse
+
+
+def filter_weine(weine_df: pd.DataFrame, ausschluesse: Dict[str, List[str]]) -> pd.DataFrame:
+    """Filtert Weine basierend auf Ausschlüssen."""
+    gefiltert = weine_df.copy()
+
+    for idx, wein in weine_df.iterrows():
+        ausschliessen = False
+
+        # Farbe prüfen
+        if ausschluesse["farben"]:
+            wein_farbe = parse_weinfarbe(get_column_value(wein, "Farbe", ""))
+            if wein_farbe in ausschluesse["farben"]:
+                ausschliessen = True
+
+        # Süße prüfen
+        if ausschluesse["suesse"] and not ausschliessen:
+            wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", ""))
+            if "trocken" in ausschluesse["suesse"] and wein_suesse == 0:
+                ausschliessen = True
+            if "süß" in ausschluesse["suesse"] and wein_suesse >= 2:
+                ausschliessen = True
+
+        # Körper prüfen
+        if ausschluesse["koerper"] and not ausschliessen:
+            wein_koerper = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Körper", ""))
+            if "schwer" in ausschluesse["koerper"] and wein_koerper >= 2:
+                ausschliessen = True
+            if "leicht" in ausschluesse["koerper"] and wein_koerper == 0:
+                ausschliessen = True
+
+        # Säure prüfen
+        if ausschluesse["saeure"] and not ausschliessen:
+            wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", ""))
+            if "hoch" in ausschluesse["saeure"] and wein_saeure >= 2:
+                ausschliessen = True
+            if "niedrig" in ausschluesse["saeure"] and wein_saeure == 0:
+                ausschliessen = True
+
+        if ausschliessen:
+            gefiltert = gefiltert.drop(idx)
+
+    return gefiltert
 
 
 # --- STARTSEITE ---
@@ -732,6 +829,11 @@ elif st.session_state.modus == "eingabe":
 
     eingabe = st.text_input("Ihr Gericht", placeholder="z.B. Lachs mit Gemüse")
 
+    st.markdown("")
+    st.markdown("### Gibt es etwas, das Sie nicht mögen?")
+    st.markdown("*Optional: z.B. kein Rotwein, nicht zu trocken, keine hohe Säure*")
+    praeferenzen = st.text_input("Ihre Präferenzen", placeholder="z.B. kein Rotwein", key="pref_eingabe")
+
     if eingabe:
         treffer = finde_passende_speise(eingabe)
 
@@ -739,12 +841,12 @@ elif st.session_state.modus == "eingabe":
             if len(treffer) == 1:
                 st.success(f"Gefunden: **{treffer[0]}**")
                 if st.button("Weine finden"):
-                    zeige_empfehlungen(treffer[0])
+                    zeige_empfehlungen(treffer[0], praeferenzen)
             else:
                 st.info(f"{len(treffer)} passende Gerichte gefunden:")
                 auswahl = st.selectbox("Bitte wählen:", treffer)
                 if st.button("Weine finden"):
-                    zeige_empfehlungen(auswahl)
+                    zeige_empfehlungen(auswahl, praeferenzen)
         else:
             st.warning("Kein passendes Gericht gefunden. Versuchen Sie einen anderen Begriff oder wählen Sie aus der Speisekarte.")
 
@@ -763,5 +865,10 @@ elif st.session_state.modus == "liste":
         label_visibility="collapsed"
     )
 
+    st.markdown("")
+    st.markdown("### Gibt es etwas, das Sie nicht mögen?")
+    st.markdown("*Optional: z.B. kein Rotwein, nicht zu trocken, keine hohe Säure*")
+    praeferenzen = st.text_input("Ihre Präferenzen", placeholder="z.B. kein Rotwein", key="pref_liste")
+
     if st.button("Passende Weine finden"):
-        zeige_empfehlungen(speise_name)
+        zeige_empfehlungen(speise_name, praeferenzen)

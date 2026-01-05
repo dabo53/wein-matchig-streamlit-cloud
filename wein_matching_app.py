@@ -607,6 +607,19 @@ st.markdown("""
         line-height: 1.6;
         margin-top: 0.8rem;
     }
+    .choice-card {
+        background: #f9f9f9;
+        border-radius: 12px;
+        padding: 2rem;
+        text-align: center;
+        border: 2px solid #e0e0e0;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .choice-card:hover {
+        border-color: #722F37;
+        background: #faf7f5;
+    }
     .stButton > button {
         background-color: #722F37;
         color: white;
@@ -619,14 +632,23 @@ st.markdown("""
     .stButton > button:hover {
         background-color: #5a252c;
     }
+    .back-button > button {
+        background-color: #666;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# Session State initialisieren
+if "modus" not in st.session_state:
+    st.session_state.modus = "start"  # start, eingabe, liste
+
+# Header
 st.markdown('<div class="main-header">', unsafe_allow_html=True)
 st.title("AI Sommelier")
 st.markdown("*Ihr persönlicher Weinberater für das perfekte Pairing*")
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Daten laden
 try:
     weine_df, speisen_df, regeln_df = lade_daten()
 except Exception as exc:
@@ -637,37 +659,109 @@ if speisen_df.empty or weine_df.empty:
     st.warning("Keine Daten gefunden.")
     st.stop()
 
-# Sidebar mit Info
+# Sidebar
 st.sidebar.markdown("### Über")
 st.sidebar.markdown(f"**{len(weine_df)}** Weine verfügbar")
 st.sidebar.markdown(f"**{len(speisen_df)}** Gerichte")
 
-st.markdown("### Wählen Sie Ihr Gericht")
-speise_name = st.selectbox(
-    "Gericht",
-    speisen_df[SPEISEN_SPALTE].tolist(),
-    label_visibility="collapsed"
-)
 
-st.markdown("")  # Spacing
-
-if st.button("Passende Weine finden"):
+def zeige_empfehlungen(speise_name: str):
+    """Zeigt Weinempfehlungen für eine Speise an."""
     with st.spinner("Analysiere Geschmacksprofile..."):
         try:
             top_matches, speise_art = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
         except Exception as exc:
             st.error(f"Fehler: {exc}")
-        else:
-            if not top_matches:
-                st.info("Keine passenden Weine gefunden.")
-            else:
-                st.markdown("---")
-                st.markdown(f"### Unsere Empfehlungen")
+            return
 
-                for i, match in enumerate(top_matches, 1):
-                    st.markdown(f"""
-                    <div class="wine-card">
-                        <div class="wine-name">{i}. {match['weinname']}</div>
-                        <div class="wine-description">{match['beschreibung']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+        if not top_matches:
+            st.info("Keine passenden Weine gefunden.")
+        else:
+            st.markdown("---")
+            st.markdown(f"### Unsere Empfehlungen")
+
+            for i, match in enumerate(top_matches, 1):
+                st.markdown(f"""
+                <div class="wine-card">
+                    <div class="wine-name">{i}. {match['weinname']}</div>
+                    <div class="wine-description">{match['beschreibung']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+
+def finde_passende_speise(eingabe: str) -> List[str]:
+    """Findet Speisen die zur Eingabe passen."""
+    eingabe_lower = eingabe.lower().strip()
+    treffer = []
+    for speise in speisen_df[SPEISEN_SPALTE].tolist():
+        if eingabe_lower in speise.lower():
+            treffer.append(speise)
+    return treffer
+
+
+# --- STARTSEITE ---
+if st.session_state.modus == "start":
+    st.markdown("### Wie möchten Sie Ihr Gericht auswählen?")
+    st.markdown("")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Gericht beschreiben**")
+        st.markdown("Schreiben Sie, was Sie essen möchten")
+        if st.button("Eingeben", key="btn_eingabe"):
+            st.session_state.modus = "eingabe"
+            st.rerun()
+
+    with col2:
+        st.markdown("**Aus Speisekarte wählen**")
+        st.markdown("Wählen Sie aus unserer Karte")
+        if st.button("Speisekarte", key="btn_liste"):
+            st.session_state.modus = "liste"
+            st.rerun()
+
+
+# --- FREITEXT EINGABE ---
+elif st.session_state.modus == "eingabe":
+    if st.button("← Zurück"):
+        st.session_state.modus = "start"
+        st.rerun()
+
+    st.markdown("### Was essen Sie heute?")
+    st.markdown("Beschreiben Sie Ihr Gericht (z.B. *Lachs*, *Steak*, *Pasta*)")
+
+    eingabe = st.text_input("Ihr Gericht", placeholder="z.B. Lachs mit Gemüse")
+
+    if eingabe:
+        treffer = finde_passende_speise(eingabe)
+
+        if treffer:
+            if len(treffer) == 1:
+                st.success(f"Gefunden: **{treffer[0]}**")
+                if st.button("Weine finden"):
+                    zeige_empfehlungen(treffer[0])
+            else:
+                st.info(f"{len(treffer)} passende Gerichte gefunden:")
+                auswahl = st.selectbox("Bitte wählen:", treffer)
+                if st.button("Weine finden"):
+                    zeige_empfehlungen(auswahl)
+        else:
+            st.warning("Kein passendes Gericht gefunden. Versuchen Sie einen anderen Begriff oder wählen Sie aus der Speisekarte.")
+
+
+# --- LISTEN AUSWAHL ---
+elif st.session_state.modus == "liste":
+    if st.button("← Zurück"):
+        st.session_state.modus = "start"
+        st.rerun()
+
+    st.markdown("### Wählen Sie Ihr Gericht")
+
+    speise_name = st.selectbox(
+        "Gericht",
+        speisen_df[SPEISEN_SPALTE].tolist(),
+        label_visibility="collapsed"
+    )
+
+    if st.button("Passende Weine finden"):
+        zeige_empfehlungen(speise_name)

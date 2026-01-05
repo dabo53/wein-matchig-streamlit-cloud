@@ -515,14 +515,11 @@ st.markdown("""
         color: #722F37;
         margin-bottom: 0.5rem;
     }
-    .wine-score {
-        font-size: 1.1rem;
+    .wine-description {
+        font-size: 1rem;
         color: #4a4a4a;
-    }
-    .wine-reason {
-        font-size: 0.9rem;
-        color: #666;
-        margin-top: 0.5rem;
+        line-height: 1.6;
+        margin-top: 0.8rem;
     }
     .stButton > button {
         background-color: #722F37;
@@ -540,7 +537,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">', unsafe_allow_html=True)
-st.title("🍷 AI Sommelier")
+st.title("AI Sommelier")
 st.markdown("*Ihr persönlicher Weinberater für das perfekte Pairing*")
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -556,8 +553,8 @@ if speisen_df.empty or weine_df.empty:
 
 # Sidebar mit Info
 st.sidebar.markdown("### Über")
-st.sidebar.markdown(f"🍷 **{len(weine_df)}** Weine verfügbar")
-st.sidebar.markdown(f"🍽️ **{len(speisen_df)}** Gerichte")
+st.sidebar.markdown(f"**{len(weine_df)}** Weine verfügbar")
+st.sidebar.markdown(f"**{len(speisen_df)}** Gerichte")
 
 st.markdown("### Wählen Sie Ihr Gericht")
 speise_name = st.selectbox(
@@ -568,7 +565,7 @@ speise_name = st.selectbox(
 
 st.markdown("")  # Spacing
 
-if st.button("🔍 Passende Weine finden"):
+if st.button("Passende Weine finden"):
     with st.spinner("Analysiere Geschmacksprofile..."):
         try:
             top_matches, score_counts = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
@@ -582,29 +579,18 @@ if st.button("🔍 Passende Weine finden"):
                 st.markdown(f"### Empfehlungen für *{speise_name}*")
 
                 for i, match in enumerate(top_matches, 1):
-                    punkte = match["punkte"]
-                    wein_daten = match.get("wein_daten", {})
-                    farbe = wein_daten.get("Farbe (parsed)", "")
+                    # Fließtext aus den Gründen erstellen
+                    gruende_texte = []
+                    if match["gründe"]:
+                        for eintrag in match["gründe"]:
+                            if eintrag['Punkte'].startswith('+'):
+                                gruende_texte.append(eintrag['Erklärung'])
 
-                    # Farb-Emoji basierend auf Weinfarbe
-                    farb_emoji = "🍷"
-                    if farbe == "weiß":
-                        farb_emoji = "🥂"
-                    elif farbe == "rosé":
-                        farb_emoji = "🌸"
-                    elif farbe == "schaumwein":
-                        farb_emoji = "🍾"
+                    beschreibung = " ".join(gruende_texte) if gruende_texte else "Ein passender Wein für dieses Gericht."
 
                     st.markdown(f"""
                     <div class="wine-card">
-                        <div class="wine-name">{farb_emoji} {i}. {match['weinname']}</div>
-                        <div class="wine-score">Matching-Score: {punkte} Punkte</div>
+                        <div class="wine-name">{i}. {match['weinname']}</div>
+                        <div class="wine-description">{beschreibung}</div>
                     </div>
                     """, unsafe_allow_html=True)
-
-                    # Gründe als aufklappbarer Bereich
-                    if match["gründe"]:
-                        with st.expander("Warum dieser Wein?"):
-                            for eintrag in match["gründe"]:
-                                prefix = "✅" if eintrag['Punkte'].startswith('+') else "⚠️"
-                                st.markdown(f"{prefix} **{eintrag['Kategorie']}**: {eintrag['Erklärung']}")

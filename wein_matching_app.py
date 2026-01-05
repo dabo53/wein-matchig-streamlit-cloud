@@ -489,100 +489,122 @@ def berechne_top_matches(
 
 
 # --- Streamlit UI ---
-st.title("🍷 AI Sommelier Matching")
-st.markdown("Wähle eine Speise und erhalte datenbasierte Weinempfehlungen.")
+st.set_page_config(
+    page_title="AI Sommelier",
+    page_icon="🍷",
+    layout="centered",
+)
+
+# Custom CSS für schöneres Design
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        padding: 1rem 0 2rem 0;
+    }
+    .wine-card {
+        background: linear-gradient(135deg, #f5f0eb 0%, #e8e0d8 100%);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border-left: 4px solid #722F37;
+    }
+    .wine-name {
+        font-size: 1.3rem;
+        font-weight: bold;
+        color: #722F37;
+        margin-bottom: 0.5rem;
+    }
+    .wine-score {
+        font-size: 1.1rem;
+        color: #4a4a4a;
+    }
+    .wine-reason {
+        font-size: 0.9rem;
+        color: #666;
+        margin-top: 0.5rem;
+    }
+    .stButton > button {
+        background-color: #722F37;
+        color: white;
+        border-radius: 8px;
+        padding: 0.5rem 2rem;
+        font-size: 1.1rem;
+        border: none;
+        width: 100%;
+    }
+    .stButton > button:hover {
+        background-color: #5a252c;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-header">', unsafe_allow_html=True)
+st.title("🍷 AI Sommelier")
+st.markdown("*Ihr persönlicher Weinberater für das perfekte Pairing*")
+st.markdown('</div>', unsafe_allow_html=True)
 
 try:
     weine_df, speisen_df, regeln_df = lade_daten()
-except Exception as exc:  # pragma: no cover - UI Feedback
-    st.error(f"❌ Daten konnten nicht geladen werden: {exc}")
+except Exception as exc:
+    st.error(f"Daten konnten nicht geladen werden: {exc}")
     st.stop()
 
 if speisen_df.empty or weine_df.empty:
-    st.warning("Keine Daten in den Google Sheets gefunden.")
+    st.warning("Keine Daten gefunden.")
     st.stop()
 
-# Debug-Info: Anzahl geladener Datensätze
-st.sidebar.markdown("### 📊 Geladene Daten")
-st.sidebar.write(f"🍷 Weine: **{len(weine_df)}**")
-st.sidebar.write(f"🍽️ Speisen: **{len(speisen_df)}**")
-st.sidebar.write(f"📋 Regeln: **{len(regeln_df)}**")
+# Sidebar mit Info
+st.sidebar.markdown("### Über")
+st.sidebar.markdown(f"🍷 **{len(weine_df)}** Weine verfügbar")
+st.sidebar.markdown(f"🍽️ **{len(speisen_df)}** Gerichte")
 
-speise_name = st.selectbox("Speise auswählen", speisen_df[SPEISEN_SPALTE].tolist())
+st.markdown("### Wählen Sie Ihr Gericht")
+speise_name = st.selectbox(
+    "Gericht",
+    speisen_df[SPEISEN_SPALTE].tolist(),
+    label_visibility="collapsed"
+)
 
-if st.button("🔍 Weinempfehlungen anzeigen"):
-    with st.spinner("Berechne Empfehlungen..."):
+st.markdown("")  # Spacing
+
+if st.button("🔍 Passende Weine finden"):
+    with st.spinner("Analysiere Geschmacksprofile..."):
         try:
             top_matches, score_counts = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
         except Exception as exc:
-            st.error(f"⚠️ Matching fehlgeschlagen: {exc}")
+            st.error(f"Fehler: {exc}")
         else:
             if not top_matches:
-                st.info("Für diese Speise wurden keine passenden Weine gefunden.")
+                st.info("Keine passenden Weine gefunden.")
             else:
-                st.subheader(f"Top {len(top_matches)} Empfehlungen für: {speise_name}")
-                for match in top_matches:
+                st.markdown("---")
+                st.markdown(f"### Empfehlungen für *{speise_name}*")
+
+                for i, match in enumerate(top_matches, 1):
                     punkte = match["punkte"]
-                    zeile = match.get("zeile", "?")
-                    st.markdown(f"**{match['weinname']}** — {punkte} Punkte (Zeile {zeile} im Sheet)")
+                    wein_daten = match.get("wein_daten", {})
+                    farbe = wein_daten.get("Farbe (parsed)", "")
+
+                    # Farb-Emoji basierend auf Weinfarbe
+                    farb_emoji = "🍷"
+                    if farbe == "weiß":
+                        farb_emoji = "🥂"
+                    elif farbe == "rosé":
+                        farb_emoji = "🌸"
+                    elif farbe == "schaumwein":
+                        farb_emoji = "🍾"
+
+                    st.markdown(f"""
+                    <div class="wine-card">
+                        <div class="wine-name">{farb_emoji} {i}. {match['weinname']}</div>
+                        <div class="wine-score">Matching-Score: {punkte} Punkte</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Gründe als aufklappbarer Bereich
                     if match["gründe"]:
-                        st.markdown("Gründe:")
-                        for eintrag in match["gründe"]:
-                            st.markdown(
-                                f"- {eintrag['Kategorie']}: {eintrag['Erklärung']} ({eintrag['Punkte']})"
-                            )
-                    with st.expander(f"Debug: Bewertung für {match['weinname']}"):
-                        st.markdown("**Wein-Attribute aus Sheet:**")
-                        st.json(match.get("wein_daten", {}))
-                        st.markdown("**Angewandte Regeln:**")
-                        st.dataframe(pd.DataFrame(match["gründe"]))
-
-                # Debug: Score-Verteilung anzeigen
-                with st.expander("Debug: Score-Verteilung aller Weine"):
-                    st.markdown("**Wie viele Weine haben welchen Score?**")
-                    sorted_scores = sorted(score_counts.items(), key=lambda x: x[0], reverse=True)
-                    for score, count in sorted_scores[:10]:  # Top 10 Score-Gruppen
-                        st.write(f"Score {score}: **{count}** Weine")
-
-    with st.expander("Debug: Speisendetails"):
-        st.json(
-            speisen_df[speisen_df[SPEISEN_SPALTE] == speise_name].iloc[0].to_dict()
-        )
-
-# Debug: Vergleich Wein aus Zeile 10 vs Zeile 500
-with st.expander("🔬 Debug: Vergleich Wein Zeile 10 vs Zeile 500"):
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Wein aus Zeile 10:**")
-        if len(weine_df) > 9:
-            wein_10 = weine_df.iloc[9]
-            st.write(f"Weinname: `{get_column_value(wein_10, 'Weinname', 'FEHLT')}`")
-            art_10 = get_column_value(wein_10, "Farbe", "FEHLT")
-            st.write(f"Art (roh): `{art_10}`")
-            st.write(f"Farbe (parsed): `{parse_weinfarbe(art_10)}`")
-            st.write(f"Körper: `{get_column_value(wein_10, 'Körper', 'FEHLT')}`")
-            st.write(f"Säure: `{get_column_value(wein_10, 'Säure', 'FEHLT')}`")
-            st.write(f"Tannin: `{get_column_value(wein_10, 'Tannin', 'FEHLT')}`")
-            st.write(f"Süße: `{get_column_value(wein_10, 'Süße', 'FEHLT')}`")
-            st.write(f"Alkoholgehalt: `{get_column_value(wein_10, 'Alkoholgehalt', 'FEHLT')}`")
-
-    with col2:
-        st.markdown("**Wein aus Zeile 500:**")
-        if len(weine_df) > 499:
-            wein_500 = weine_df.iloc[499]
-            st.write(f"Weinname: `{get_column_value(wein_500, 'Weinname', 'FEHLT')}`")
-            art_500 = get_column_value(wein_500, "Farbe", "FEHLT")
-            st.write(f"Art (roh): `{art_500}`")
-            st.write(f"Farbe (parsed): `{parse_weinfarbe(art_500)}`")
-            st.write(f"Körper: `{get_column_value(wein_500, 'Körper', 'FEHLT')}`")
-            st.write(f"Säure: `{get_column_value(wein_500, 'Säure', 'FEHLT')}`")
-            st.write(f"Tannin: `{get_column_value(wein_500, 'Tannin', 'FEHLT')}`")
-            st.write(f"Süße: `{get_column_value(wein_500, 'Süße', 'FEHLT')}`")
-            st.write(f"Alkoholgehalt: `{get_column_value(wein_500, 'Alkoholgehalt', 'FEHLT')}`")
-        else:
-            st.write("Weniger als 500 Weine vorhanden")
-
-    st.markdown("---")
-    st.markdown("**Alle Spalten im Wein-DataFrame:**")
-    st.write(list(weine_df.columns))
+                        with st.expander("Warum dieser Wein?"):
+                            for eintrag in match["gründe"]:
+                                prefix = "✅" if eintrag['Punkte'].startswith('+') else "⚠️"
+                                st.markdown(f"{prefix} **{eintrag['Kategorie']}**: {eintrag['Erklärung']}")

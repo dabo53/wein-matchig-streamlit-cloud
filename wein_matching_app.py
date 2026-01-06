@@ -167,6 +167,67 @@ def baue_regel_lookup(regeln_df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
     return lookup
 
 
+def pruefe_ausschluss(wein: pd.Series, ausschluss_text: str) -> bool:
+    """Prüft ob ein Wein dem Ausschlusskriterium entspricht."""
+    if not ausschluss_text.strip():
+        return False
+
+    ausschluss_lower = ausschluss_text.lower().strip()
+
+    # Weinfarbe prüfen
+    wein_farbe = parse_weinfarbe(get_column_value(wein, "Farbe", "")).lower()
+    if any(keyword in ausschluss_lower for keyword in ["rotwein", "rot wein", "keine roten"]):
+        if "rot" in wein_farbe:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["weißwein", "weisswein", "weiß wein", "keine weißen"]):
+        if "weiß" in wein_farbe or "weiss" in wein_farbe:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["rosé", "rose"]):
+        if "rosé" in wein_farbe or "rose" in wein_farbe:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["schaumwein", "champagner", "sekt"]):
+        if "schaumwein" in wein_farbe:
+            return True
+
+    # Säure prüfen
+    if any(keyword in ausschluss_lower for keyword in ["hohe säure", "hoher säure", "viel säure", "säurereich"]):
+        wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
+        if wein_saeure >= 2:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["niedrige säure", "wenig säure"]):
+        wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
+        if wein_saeure == 0:
+            return True
+
+    # Süße prüfen
+    if any(keyword in ausschluss_lower for keyword in ["süß", "süss", "lieblich", "süße weine"]):
+        wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
+        if wein_suesse >= 2:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["trocken", "trockene weine"]):
+        wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
+        if wein_suesse == 0:
+            return True
+
+    # Tannin prüfen
+    if any(keyword in ausschluss_lower for keyword in ["hohe tannine", "tanninreich", "viel tannin"]):
+        wein_tannin = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Tannin", "niedrig"))
+        if wein_tannin >= 2:
+            return True
+
+    # Alkohol prüfen
+    if any(keyword in ausschluss_lower for keyword in ["hoher alkohol", "viel alkohol", "alkoholreich"]):
+        wein_alkohol = parse_alkohol(get_column_value(wein, "Alkoholgehalt", "mittel"))
+        if wein_alkohol >= 2:
+            return True
+    if any(keyword in ausschluss_lower for keyword in ["niedriger alkohol", "wenig alkohol"]):
+        wein_alkohol = parse_alkohol(get_column_value(wein, "Alkoholgehalt", "mittel"))
+        if wein_alkohol == 0:
+            return True
+
+    return False
+
+
 def generiere_sommelier_text(
     speise_name: str,
     speise_art: str,
@@ -194,43 +255,121 @@ def generiere_sommelier_text(
 
     if "Weinfarbe & Speiseart" in positive_kategorien:
         if speise_art in {"fisch", "gefluegel", "vegetarisch"}:
-            saetze.append(f"Dieser {farbe_text} ist ein idealer Begleiter für Ihr {art_text}.")
+            varianten = [
+                f"Dieser {farbe_text} ist ein idealer Begleiter für Ihr {art_text}.",
+                f"Perfekt abgestimmt: der {farbe_text} unterstreicht die feinen Nuancen des Gerichts.",
+                f"Mit diesem {farbe_text} entfaltet sich das {art_text} erst richtig.",
+                f"Eine klassische Paarung: {farbe_text} und {art_text} in Harmonie.",
+            ]
+            saetze.append(random.choice(varianten))
         elif speise_art == "rotes_fleisch":
-            saetze.append(f"Die Struktur dieses {farbe_text}s harmoniert ausgezeichnet mit der Intensität des Fleisches.")
+            varianten = [
+                f"Die Struktur dieses {farbe_text}s harmoniert ausgezeichnet mit der Intensität des Fleisches.",
+                f"Kraftvoll und präsent: dieser {farbe_text} steht dem Fleischgericht ebenbürtig gegenüber.",
+                f"Ein {farbe_text}, der die Würze des Fleisches ideal ergänzt.",
+                f"Die Komplexität des {farbe_text}s findet im kräftigen Fleisch ihren perfekten Partner.",
+            ]
+            saetze.append(random.choice(varianten))
         elif speise_art == "dessert":
-            saetze.append(f"Dieser {farbe_text} rundet Ihr {art_text} wunderbar ab.")
+            varianten = [
+                f"Dieser {farbe_text} rundet Ihr {art_text} wunderbar ab.",
+                f"Ein süßer Abschluss: der {farbe_text} schmeichelt dem Dessert.",
+                f"Mit diesem {farbe_text} wird das {art_text} zum Höhepunkt des Menüs.",
+            ]
+            saetze.append(random.choice(varianten))
         else:
-            saetze.append(f"Dieser {farbe_text} ergänzt Ihr Gericht auf elegante Weise.")
+            varianten = [
+                f"Dieser {farbe_text} ergänzt Ihr Gericht auf elegante Weise.",
+                f"Eine gelungene Wahl: der {farbe_text} hebt die Aromen hervor.",
+                f"Der {farbe_text} fügt sich nahtlos in die Geschmackskomposition ein.",
+            ]
+            saetze.append(random.choice(varianten))
 
     if "Intensitätsabgleich (Gewicht)" in positive_kategorien:
         if not saetze:
-            saetze.append("Die Fülle des Weins steht im perfekten Gleichgewicht mit der Aromatik Ihrer Speise.")
+            varianten = [
+                "Die Fülle des Weins steht im perfekten Gleichgewicht mit der Aromatik Ihrer Speise.",
+                "Wein und Gericht begegnen sich auf Augenhöhe.",
+                "Eine ausgewogene Komposition: beide Partner spielen sich die Bälle zu.",
+                "Hier stimmt die Balance zwischen Kraft und Finesse.",
+            ]
+            saetze.append(random.choice(varianten))
         else:
-            saetze.append("Dabei stehen Wein und Speise in perfekter Balance zueinander.")
+            varianten = [
+                "Dabei stehen Wein und Speise in perfekter Balance zueinander.",
+                "Die Intensität ist ideal abgestimmt.",
+                "Keiner überlagert den anderen – eine harmonische Einheit.",
+                "Gewicht und Fülle ergänzen sich meisterhaft.",
+            ]
+            saetze.append(random.choice(varianten))
 
     if "Säure-Balance" in positive_kategorien or "Säure-Fett" in positive_kategorien:
-        saetze.append("Die lebendige Säure sorgt für Frische am Gaumen und hebt die Aromen hervor.")
+        varianten = [
+            "Die lebendige Säure sorgt für Frische am Gaumen und hebt die Aromen hervor.",
+            "Ein erfrischender Kontrast: die Säure belebt die Geschmacksknospen.",
+            "Straffe Säure verleiht dem Zusammenspiel Spannung und Eleganz.",
+            "Die vibrierende Frische durchschneidet Reichhaltigkeit mit Leichtigkeit.",
+            "Säure als Brücke: verbindet die Aromen und sorgt für Dynamik.",
+        ]
+        saetze.append(random.choice(varianten))
 
     if "Süße-Balance" in positive_kategorien:
         if speise_art == "dessert":
-            saetze.append("Die feine Süße des Weins greift die Dessertnoten harmonisch auf.")
+            varianten = [
+                "Die feine Süße des Weins greift die Dessertnoten harmonisch auf.",
+                "Süß trifft süß: eine delikate Liaison ohne Überforderung.",
+                "Die Restsüße schmiegt sich sanft an die Dessertaromen an.",
+            ]
+            saetze.append(random.choice(varianten))
         else:
-            saetze.append("Die Geschmacksprofile von Wein und Speise ergänzen sich harmonisch.")
+            varianten = [
+                "Die Geschmacksprofile von Wein und Speise ergänzen sich harmonisch.",
+                "Feine Abstimmung: jede Nuance findet ihren Platz.",
+                "Ein Zusammenspiel, bei dem sich alle Komponenten respektieren.",
+            ]
+            saetze.append(random.choice(varianten))
 
     if "Tannin vs Fett" in positive_kategorien:
-        saetze.append("Die samtigen Tannine umschmeicheln die reichhaltigen Aromen des Gerichts.")
+        varianten = [
+            "Die samtigen Tannine umschmeicheln die reichhaltigen Aromen des Gerichts.",
+            "Gerbstoffe und Fett: ein Duett, das für Struktur sorgt.",
+            "Die Tannine greifen ins Fett und schaffen Spannung.",
+            "Adstringenz trifft Cremigkeit – eine klassische Verbindung.",
+        ]
+        saetze.append(random.choice(varianten))
 
     if "Textur" in positive_kategorien:
-        saetze.append("Die Textur des Weins setzt einen spannenden Kontrast zur Speise.")
+        varianten = [
+            "Die Textur des Weins setzt einen spannenden Kontrast zur Speise.",
+            "Mundgefühl und Struktur spielen reizvoll miteinander.",
+            "Ein texturelles Highlight: Wein und Gericht im Dialog.",
+        ]
+        saetze.append(random.choice(varianten))
 
     if "Würze/Schärfe" in positive_kategorien:
-        saetze.append("Der Wein mildert die Würze und schafft einen angenehmen Ausgleich.")
+        varianten = [
+            "Der Wein mildert die Würze und schafft einen angenehmen Ausgleich.",
+            "Schärfe wird gezähmt: der Wein bringt Balance ins Spiel.",
+            "Ein kühler Kopf bei Hitze – der Wein beruhigt die Würze.",
+        ]
+        saetze.append(random.choice(varianten))
 
     if "Salz" in positive_kategorien:
-        saetze.append("Die salzigen Nuancen des Gerichts werden vom Wein elegant aufgefangen.")
+        varianten = [
+            "Die salzigen Nuancen des Gerichts werden vom Wein elegant aufgefangen.",
+            "Salz und Wein: eine natürliche Allianz, die harmoniert.",
+            "Salzigkeit findet im Wein einen verlässlichen Begleiter.",
+        ]
+        saetze.append(random.choice(varianten))
 
     if not saetze:
-        saetze.append(f"Dieser {farbe_text} passt hervorragend zu Ihrer Wahl und verspricht ein genussvolles Zusammenspiel der Aromen.")
+        varianten = [
+            f"Dieser {farbe_text} passt hervorragend zu Ihrer Wahl und verspricht ein genussvolles Zusammenspiel der Aromen.",
+            f"Eine empfehlenswerte Kombination: der {farbe_text} macht Freude.",
+            f"Mit diesem {farbe_text} liegen Sie goldrichtig.",
+            f"Der {farbe_text} zeigt sich als würdiger Begleiter.",
+        ]
+        saetze.append(random.choice(varianten))
 
     return " ".join(saetze[:3])
 
@@ -356,6 +495,7 @@ def berechne_top_matches(
     weine_df: pd.DataFrame,
     regeln_df: pd.DataFrame,
     speise_name: str,
+    ausschluss_text: str = "",
 ) -> Tuple[List[Dict[str, object]], str]:
     if speise_name not in speisen_df[SPEISEN_SPALTE].values:
         raise ValueError(f"Speise '{speise_name}' nicht gefunden.")
@@ -366,6 +506,10 @@ def berechne_top_matches(
 
     matches: List[Dict[str, object]] = []
     for idx, wein in weine_df.iterrows():
+        # Prüfe ob Wein ausgeschlossen werden soll
+        if pruefe_ausschluss(wein, ausschluss_text):
+            continue
+
         result = berechne_match(speise, wein, regel_lookup)
         art_raw = get_column_value(wein, "Farbe", "")
         wein_farbe = parse_weinfarbe(art_raw)
@@ -595,7 +739,7 @@ if submitted and gericht.strip():
         speise_name = treffer[0]
 
         try:
-            top_matches, _ = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name)
+            top_matches, _ = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name, ausschluss)
 
             st.markdown('<p class="result-title">Weinempfehlung</p>', unsafe_allow_html=True)
             st.markdown(f'<p class="result-speise">für {speise_name}</p>', unsafe_allow_html=True)

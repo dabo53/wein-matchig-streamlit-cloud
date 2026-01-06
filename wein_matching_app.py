@@ -167,65 +167,136 @@ def baue_regel_lookup(regeln_df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
     return lookup
 
 
-def pruefe_ausschluss(wein: pd.Series, ausschluss_text: str) -> bool:
-    """Prüft ob ein Wein dem Ausschlusskriterium entspricht."""
-    if not ausschluss_text.strip():
+def pruefe_ausschluss(wein: pd.Series, anmerkungen_text: str) -> bool:
+    """Prüft ob ein Wein ausgeschlossen werden soll."""
+    if not anmerkungen_text.strip():
         return False
 
-    ausschluss_lower = ausschluss_text.lower().strip()
-
-    # Weinfarbe prüfen
+    anm_lower = anmerkungen_text.lower().strip()
     wein_farbe = parse_weinfarbe(get_column_value(wein, "Farbe", "")).lower()
-    if any(keyword in ausschluss_lower for keyword in ["rotwein", "rot wein", "keine roten"]):
+
+    # "nur" Einschränkungen: schließe alle anderen aus
+    if any(keyword in anm_lower for keyword in ["nur rot", "nur rotwein", "ausschließlich rot"]):
+        return "rot" not in wein_farbe
+    if any(keyword in anm_lower for keyword in ["nur weiß", "nur weiss", "nur weißwein", "ausschließlich weiß"]):
+        return "weiß" not in wein_farbe and "weiss" not in wein_farbe
+    if any(keyword in anm_lower for keyword in ["nur rosé", "nur rose", "ausschließlich rosé"]):
+        return "rosé" not in wein_farbe and "rose" not in wein_farbe
+    if any(keyword in anm_lower for keyword in ["nur schaumwein", "nur champagner", "nur sekt"]):
+        return "schaumwein" not in wein_farbe
+
+    # Negative Ausschlüsse
+    if any(keyword in anm_lower for keyword in ["kein rot", "keine roten", "keine rotweine", "nicht rot"]):
         if "rot" in wein_farbe:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["weißwein", "weisswein", "weiß wein", "keine weißen"]):
+    if any(keyword in anm_lower for keyword in ["kein weiß", "kein weiss", "keine weißen", "keine weißweine", "nicht weiß"]):
         if "weiß" in wein_farbe or "weiss" in wein_farbe:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["rosé", "rose"]):
+    if any(keyword in anm_lower for keyword in ["kein rosé", "kein rose", "keine rosés", "nicht rosé"]):
         if "rosé" in wein_farbe or "rose" in wein_farbe:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["schaumwein", "champagner", "sekt"]):
+    if any(keyword in anm_lower for keyword in ["kein schaumwein", "kein champagner", "kein sekt", "nicht schaumwein"]):
         if "schaumwein" in wein_farbe:
             return True
 
-    # Säure prüfen
-    if any(keyword in ausschluss_lower for keyword in ["hohe säure", "hoher säure", "viel säure", "säurereich"]):
+    # Säure
+    if any(keyword in anm_lower for keyword in ["keine hohe säure", "nicht säurereich", "wenig säure"]):
         wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
         if wein_saeure >= 2:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["niedrige säure", "wenig säure"]):
-        wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
-        if wein_saeure == 0:
-            return True
 
-    # Süße prüfen
-    if any(keyword in ausschluss_lower for keyword in ["süß", "süss", "lieblich", "süße weine"]):
+    # Süße
+    if any(keyword in anm_lower for keyword in ["nicht süß", "kein süß", "keine süße", "nicht lieblich"]):
         wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
         if wein_suesse >= 2:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["trocken", "trockene weine"]):
+    if any(keyword in anm_lower for keyword in ["nicht trocken", "kein trocken"]):
         wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
         if wein_suesse == 0:
             return True
 
-    # Tannin prüfen
-    if any(keyword in ausschluss_lower for keyword in ["hohe tannine", "tanninreich", "viel tannin"]):
+    # Tannin
+    if any(keyword in anm_lower for keyword in ["keine tannine", "nicht tanninreich", "wenig tannin"]):
         wein_tannin = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Tannin", "niedrig"))
         if wein_tannin >= 2:
             return True
 
-    # Alkohol prüfen
-    if any(keyword in ausschluss_lower for keyword in ["hoher alkohol", "viel alkohol", "alkoholreich"]):
+    # Alkohol
+    if any(keyword in anm_lower for keyword in ["kein hoher alkohol", "wenig alkohol", "niedriger alkohol gewünscht"]):
         wein_alkohol = parse_alkohol(get_column_value(wein, "Alkoholgehalt", "mittel"))
         if wein_alkohol >= 2:
             return True
-    if any(keyword in ausschluss_lower for keyword in ["niedriger alkohol", "wenig alkohol"]):
-        wein_alkohol = parse_alkohol(get_column_value(wein, "Alkoholgehalt", "mittel"))
-        if wein_alkohol == 0:
-            return True
 
     return False
+
+
+def pruefe_praeferenz(wein: pd.Series, anmerkungen_text: str) -> int:
+    """Prüft ob ein Wein einer Präferenz entspricht und gibt Bonus-Punkte zurück."""
+    if not anmerkungen_text.strip():
+        return 0
+
+    anm_lower = anmerkungen_text.lower().strip()
+    bonus = 0
+
+    wein_farbe = parse_weinfarbe(get_column_value(wein, "Farbe", "")).lower()
+    wein_name = get_column_value(wein, "Weinname", "").lower()
+
+    # Positive Weinfarben-Präferenzen
+    if any(keyword in anm_lower for keyword in ["bevorzugt rot", "gerne rot", "lieber rot", "präferenz rot"]):
+        if "rot" in wein_farbe:
+            bonus += 3
+    if any(keyword in anm_lower for keyword in ["bevorzugt weiß", "bevorzugt weiss", "gerne weiß", "lieber weiß", "präferenz weiß"]):
+        if "weiß" in wein_farbe or "weiss" in wein_farbe:
+            bonus += 3
+    if any(keyword in anm_lower for keyword in ["bevorzugt rosé", "gerne rosé", "lieber rosé"]):
+        if "rosé" in wein_farbe or "rose" in wein_farbe:
+            bonus += 3
+    if any(keyword in anm_lower for keyword in ["bevorzugt schaumwein", "gerne schaumwein", "lieber champagner"]):
+        if "schaumwein" in wein_farbe:
+            bonus += 3
+
+    # Herkunftsland-Präferenzen
+    if any(keyword in anm_lower for keyword in ["französisch", "frankreich", "france"]):
+        if any(region in wein_name for region in ["bordeaux", "burgund", "bourgogne", "champagne", "loire", "rhône", "rhone", "châteauneuf", "chablis"]):
+            bonus += 4
+    if any(keyword in anm_lower for keyword in ["italienisch", "italien", "italy"]):
+        if any(region in wein_name for region in ["chianti", "barolo", "brunello", "prosecco", "toscana", "toskana", "piemont"]):
+            bonus += 4
+    if any(keyword in anm_lower for keyword in ["deutsch", "deutschland", "germany"]):
+        if any(region in wein_name for region in ["mosel", "rheingau", "pfalz", "riesling"]):
+            bonus += 4
+    if any(keyword in anm_lower for keyword in ["spanisch", "spanien", "spain"]):
+        if any(region in wein_name for region in ["rioja", "ribera", "priorat", "cava"]):
+            bonus += 4
+
+    # Säure-Präferenzen
+    wein_saeure = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Säure", "mittel"))
+    if any(keyword in anm_lower for keyword in ["hohe säure", "säurereich", "frisch", "lebendige säure"]):
+        if wein_saeure >= 2:
+            bonus += 2
+    if any(keyword in anm_lower for keyword in ["niedrige säure", "sanft", "mild"]):
+        if wein_saeure == 0:
+            bonus += 2
+
+    # Süße-Präferenzen
+    wein_suesse = wert_map(SUESSE_MAP, get_column_value(wein, "Süße", "niedrig"))
+    if any(keyword in anm_lower for keyword in ["süß", "süss", "lieblich", "restsüße"]):
+        if wein_suesse >= 2:
+            bonus += 2
+    if any(keyword in anm_lower for keyword in ["trocken", "dry", "sehr trocken"]):
+        if wein_suesse == 0:
+            bonus += 2
+
+    # Tannin-Präferenzen
+    wein_tannin = wert_map(INTENSITAETS_MAP, get_column_value(wein, "Tannin", "niedrig"))
+    if any(keyword in anm_lower for keyword in ["tanninreich", "kräftig", "strukturiert"]):
+        if wein_tannin >= 2:
+            bonus += 2
+    if any(keyword in anm_lower for keyword in ["weich", "samtweich", "wenig tannin"]):
+        if wein_tannin == 0:
+            bonus += 2
+
+    return bonus
 
 
 def generiere_sommelier_text(
@@ -495,7 +566,7 @@ def berechne_top_matches(
     weine_df: pd.DataFrame,
     regeln_df: pd.DataFrame,
     speise_name: str,
-    ausschluss_text: str = "",
+    anmerkungen_text: str = "",
 ) -> Tuple[List[Dict[str, object]], str]:
     if speise_name not in speisen_df[SPEISEN_SPALTE].values:
         raise ValueError(f"Speise '{speise_name}' nicht gefunden.")
@@ -507,10 +578,15 @@ def berechne_top_matches(
     matches: List[Dict[str, object]] = []
     for idx, wein in weine_df.iterrows():
         # Prüfe ob Wein ausgeschlossen werden soll
-        if pruefe_ausschluss(wein, ausschluss_text):
+        if pruefe_ausschluss(wein, anmerkungen_text):
             continue
 
         result = berechne_match(speise, wein, regel_lookup)
+
+        # Präferenz-Bonus hinzufügen
+        praeferenz_bonus = pruefe_praeferenz(wein, anmerkungen_text)
+        result["punkte"] += praeferenz_bonus
+
         art_raw = get_column_value(wein, "Farbe", "")
         wein_farbe = parse_weinfarbe(art_raw)
 
@@ -728,7 +804,7 @@ def finde_passende_speise(eingabe: str) -> List[str]:
 
 # Eingabebereich
 gericht = st.text_input("Ihr Gericht")
-ausschluss = st.text_input("Nicht gewünscht")
+anmerkungen = st.text_input("Anmerkungen")
 submitted = st.button("Wein empfehlen")
 
 # Ergebnisanzeige
@@ -739,7 +815,7 @@ if submitted and gericht.strip():
         speise_name = treffer[0]
 
         try:
-            top_matches, _ = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name, ausschluss)
+            top_matches, _ = berechne_top_matches(speisen_df, weine_df, regeln_df, speise_name, anmerkungen)
 
             st.markdown('<p class="result-title">Weinempfehlung</p>', unsafe_allow_html=True)
             st.markdown(f'<p class="result-speise">für {speise_name}</p>', unsafe_allow_html=True)

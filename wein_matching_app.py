@@ -560,8 +560,7 @@ st.markdown("""
             <path d="M6 2h12v7c0 3.31-2.69 6-6 6s-6-2.69-6-6V2zm6 11c2.21 0 4-1.79 4-4V4H8v5c0 2.21 1.79 4 4 4zm-1 3.93V20H8v2h8v-2h-3v-3.07c3.39-.49 6-3.39 6-6.93V0H5v9c0 3.54 2.61 6.44 6 6.93z"/>
         </svg>
     </div>
-    <h1 class="header-title">SOMMELIER</h1>
-    <p class="header-subtitle">Ihr Weinberater</p>
+    <h1 class="header-title">Ihr Weinberater</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -584,7 +583,8 @@ def finde_passende_speise(eingabe: str) -> List[str]:
 
 
 # Eingabebereich
-gericht = st.text_input("Ihr Gericht", placeholder="z.B. Rinderfilet, Lachs, Ente...")
+gericht = st.text_input("Ihr Gericht")
+ausschluss = st.text_input("Nicht gewünscht")
 submitted = st.button("Wein empfehlen")
 
 # Ergebnisanzeige
